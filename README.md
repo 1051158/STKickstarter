@@ -11,7 +11,15 @@ We work on the designs together in the [Figma file](https://www.figma.com/design
 
 ## App
 
-The web app lives in [`frontend/`](frontend/). It's an Expo (React Native) app that we only ship for the web.
+The web app lives in [`frontend/`](frontend/). It's an Expo (React Native) app that we only ship for the web. The backend is [Supabase](https://supabase.com), with the database schema in [`supabase/migrations/`](supabase/migrations/).
+
+You need Docker and the [Supabase CLI](https://supabase.com/docs/guides/local-development/cli/getting-started) for the local backend. From the repo root:
+
+```sh
+supabase start
+```
+
+This runs the backend on port 55321, so it doesn't clash with other local Supabase projects. Copy `frontend/.env.example` to `frontend/.env.local` and fill in the publishable key that `supabase status` prints. Then start the app:
 
 ```sh
 cd frontend
