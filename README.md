@@ -19,4 +19,4 @@ npm install
 npm run web
 ```
 
-This opens http://localhost:8081. Saving a file updates the page without a full reload.
+This opens http://localhost:8082. Saving a file updates the page without a full reload.
