@@ -28,3 +28,7 @@ npm run web
 ```
 
 This opens http://localhost:8082. Saving a file updates the page without a full reload.
+
+### Live version
+
+The test version runs at https://stkickstarter.expo.app on EAS Hosting, against the hosted Supabase project `stkickstarter`. To publish a new version, run `npm run deploy` in `frontend/` (you need to be logged in with `npx eas-cli login`). New migrations aren't applied to the hosted database automatically yet, so apply them before deploying code that needs them.

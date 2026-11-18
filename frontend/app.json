@@ -20,6 +20,12 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "owner": "aleniriskic",
+    "extra": {
+      "eas": {
+        "projectId": "d9ad2996-c9d0-4ac4-a042-a93d5f7514d8"
+      }
     }
   }
 }

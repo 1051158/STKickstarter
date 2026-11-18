@@ -23,7 +23,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web --port 8082",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "deploy": "EXPO_PUBLIC_SUPABASE_URL=https://mgennpgusxvqywzublhc.supabase.co EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_DYkG3tKXxuyKybJEV2QsAA_HYnreBdM expo export -p web && npx eas-cli deploy --prod"
   },
   "private": true
 }
