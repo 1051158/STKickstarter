@@ -24,12 +24,8 @@ export default function RoomScreen({ room, userId, onLeft }: Props) {
     }
     load();
     const channel = supabase
-      .channel(`room_members:${room.id}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'room_members', filter: `room_id=eq.${room.id}` },
-        load,
-      )
+      .channel(`room:${room.id}`, { config: { private: true } })
+      .on('broadcast', { event: 'members_changed' }, load)
       .subscribe();
     return () => {
       supabase.removeChannel(channel);
