@@ -1,5 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { ComponentProps, ReactNode } from 'react';
+import { ComponentProps, ReactNode, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, TextInputProps, View } from 'react-native';
 import { colors, font, gradients, layout, radius, size, space } from './theme';
 
@@ -53,13 +53,16 @@ export function Chip({ icon, label, onPress }: { icon: IconName; label: string; 
   );
 }
 
-export function Field({ label, ...props }: TextInputProps & { label: string }) {
+export function Field({ label, onFocus, onBlur, ...props }: TextInputProps & { label: string }) {
+  const [focused, setFocused] = useState(false);
   return (
     <TextInput
       accessibilityLabel={label}
       placeholder={label}
       placeholderTextColor={colors.text}
-      style={[styles.glass, styles.input]}
+      style={[styles.glass, styles.input, focused && styles.inputFocused]}
+      onFocus={(e) => { setFocused(true); onFocus?.(e); }}
+      onBlur={(e) => { setFocused(false); onBlur?.(e); }}
       {...props}
     />
   );
@@ -172,7 +175,9 @@ const styles = StyleSheet.create({
     maxWidth: '100%',
     height: size.control,
     paddingHorizontal: space.inputInset,
+    outlineColor: 'transparent',
   },
+  inputFocused: { borderColor: colors.focusBorder },
   button: {
     width: size.button,
     height: size.control,

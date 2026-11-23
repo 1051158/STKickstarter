@@ -7,6 +7,7 @@ export const colors = {
   glass: 'rgba(251, 252, 253, 0.16)',
   glassActive: 'rgba(251, 252, 253, 0.26)',
   glassBorder: 'rgba(255, 255, 255, 0.2)',
+  focusBorder: 'rgba(255, 255, 255, 0.7)',
 };
 
 // CSS gradients, passed through as `backgroundImage` by react-native-web.
