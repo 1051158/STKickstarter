@@ -1,18 +1,16 @@
-import { useEffect, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { ensureUserId, Room, supabase } from './lib/supabase';
 import ConnectDeviceScreen from './screens/ConnectDeviceScreen';
-import CreateRoomScreen from './screens/CreateRoomScreen';
-import HomeScreen from './screens/HomeScreen';
-import JoinRoomScreen from './screens/JoinRoomScreen';
+import GroupsScreen from './screens/GroupsScreen';
 import RoomScreen from './screens/RoomScreen';
-import { Body, ErrorText, Screen } from './ui';
-
-type Route = 'home' | 'create' | 'join' | 'connect' | 'room';
+import WelcomeScreen from './screens/WelcomeScreen';
+import { Body, BottomNav, ErrorText, Screen, Tab } from './ui';
 
 export default function App() {
   const [userId, setUserId] = useState<string | null>(null);
-  const [route, setRoute] = useState<Route>('home');
+  const [tab, setTab] = useState<Tab>('home');
   const [room, setRoom] = useState<Room | null>(null);
+  const [displayName, setDisplayName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -24,41 +22,30 @@ export default function App() {
         .order('created_at', { ascending: false })
         .limit(1);
       if (error) throw error;
-      if (data[0]) openRoom(data[0]);
+      if (data[0]) setRoom(data[0]);
       setUserId(id);
     })().catch((e: Error) => setError(e.message));
   }, []);
 
-  function openRoom(r: Room) {
-    setRoom(r);
-    setRoute('room');
-  }
-
-  const home = () => setRoute('home');
-
   if (!userId) {
     return (
-      <Screen>
+      <Screen centered>
         {error ? <ErrorText message={error} /> : <Body>Loading...</Body>}
       </Screen>
     );
   }
 
-  switch (route) {
-    case 'create':
-      return <CreateRoomScreen onBack={home} onCreated={openRoom} />;
-    case 'join':
-      return <JoinRoomScreen onBack={home} onJoined={openRoom} />;
-    case 'connect':
-      return <ConnectDeviceScreen onBack={home} />;
-    case 'room':
-      if (room) return <RoomScreen room={room} userId={userId} onLeft={home} />;
+  let content: ReactNode;
+  if (tab === 'connect') content = <ConnectDeviceScreen />;
+  else if (room) content = <RoomScreen room={room} userId={userId} onLeft={() => setRoom(null)} />;
+  else if (displayName) content = <GroupsScreen displayName={displayName} onOpened={setRoom} />;
+  else {
+    return (
+      <Screen centered>
+        <WelcomeScreen onSubmit={setDisplayName} />
+      </Screen>
+    );
   }
-  return (
-    <HomeScreen
-      onCreate={() => setRoute('create')}
-      onJoin={() => setRoute('join')}
-      onConnect={() => setRoute('connect')}
-    />
-  );
+
+  return <Screen nav={<BottomNav active={tab} onChange={setTab} />}>{content}</Screen>;
 }

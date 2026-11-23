@@ -1,8 +1,9 @@
+import * as Clipboard from 'expo-clipboard';
 import { useEffect, useState } from 'react';
 import { StyleSheet, Text } from 'react-native';
 import { Room, supabase } from '../lib/supabase';
 import { colors, font } from '../theme';
-import { Body, Button, ErrorText, Screen, Title } from '../ui';
+import { Body, Button, Card, Chip, ErrorText, Title } from '../ui';
 
 type Member = { user_id: string; display_name: string; joined_at: string };
 type Props = { room: Room; userId: string; onLeft: () => void };
@@ -10,6 +11,7 @@ type Props = { room: Room; userId: string; onLeft: () => void };
 export default function RoomScreen({ room, userId, onLeft }: Props) {
   const [members, setMembers] = useState<Member[]>([]);
   const [leaving, setLeaving] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -32,6 +34,10 @@ export default function RoomScreen({ room, userId, onLeft }: Props) {
     };
   }, [room.id]);
 
+  async function copy() {
+    setCopied(await Clipboard.setStringAsync(room.pin));
+  }
+
   async function leave() {
     setLeaving(true);
     setError(null);
@@ -46,25 +52,27 @@ export default function RoomScreen({ room, userId, onLeft }: Props) {
   }
 
   return (
-    <Screen>
-      <Title>{room.name}</Title>
-      <Body>Share this name and PIN with your friends</Body>
-      <Text style={styles.pin} selectable>
-        {room.pin}
-      </Text>
-      <Body>Members</Body>
-      {members.map((m) => (
-        <Body key={m.user_id}>
-          {m.display_name}
-          {m.user_id === userId ? ' (you)' : ''}
-        </Body>
-      ))}
-      <Button label="Leave room" onPress={leave} disabled={leaving} />
+    <>
+      <Title subtitle="Share this name and PIN with your group">{room.name}</Title>
+      <Card label="PIN" right={<Chip icon="copy-outline" label={copied ? 'Copied' : 'Copy'} onPress={copy} />}>
+        <Text style={styles.pin} selectable>
+          {room.pin}
+        </Text>
+      </Card>
+      <Card label="Members">
+        {members.map((m) => (
+          <Body key={m.user_id}>
+            {m.display_name}
+            {m.user_id === userId ? ' (you)' : ''}
+          </Body>
+        ))}
+      </Card>
+      <Button label="Leave group" onPress={leave} disabled={leaving} />
       <ErrorText message={error} />
-    </Screen>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  pin: { fontSize: font.pin, fontWeight: 'bold', fontVariant: ['tabular-nums'], color: colors.text },
+  pin: { ...font.pin, fontVariant: ['tabular-nums'], color: colors.text },
 });
