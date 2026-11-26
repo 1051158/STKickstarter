@@ -11,6 +11,7 @@ web page (index.html) with one chat pane per board.
 
 import argparse
 import json
+import math
 import os
 import queue
 import sys
@@ -42,6 +43,8 @@ def parse_num(s):
         v = float(s)
     except ValueError:
         return None
+    if not math.isfinite(v):
+        return None        # NaN or inf would break the JSON sent to the page
     return int(v) if v.is_integer() else v
 
 
@@ -58,6 +61,10 @@ class Hub:
         self.counters = {}        # device id -> last n used
         self.boards = {}          # port -> Board
         self.seq = 0
+        self.gps = {}             # device id -> own GPS state, see on_line()
+        self.peers = {}           # device id -> {peer id -> what it knows about that board}
+        self.findme = {}          # device id -> {from, t}: last find-me request it received
+        self.findsent = {}        # device id -> t of the last FINDSENT
 
     # -- broadcasting -----------------------------------------------------
     def _emit(self, kind, data):
@@ -72,6 +79,10 @@ class Hub:
             "messages": self.messages,
             "logs": self.logs[-MAX_LOG:],
             "maxBytes": MAX_TEXT_BYTES,
+            "gps": self.gps,
+            "peers": self.peers,
+            "findme": self.findme,
+            "findsent": self.findsent,
         }
 
     def subscribe(self):
@@ -155,6 +166,14 @@ class Hub:
             self._emit("message", m)
             return m, None
 
+    def command(self, dev_id, line):
+        """Write one host-to-board line, e.g. FINDME or SETPOS."""
+        with self.lock:
+            board = next((b for b in self.boards.values() if b.id == dev_id), None)
+            if board is None or not board.write(line):
+                return "Board is not connected"
+            return None
+
     def mark_read(self, dev_id, sender, n):
         with self.lock:
             m = None
@@ -223,6 +242,30 @@ class Hub:
                 if m["text"] != text:
                     m["text"] = text
                 self._emit("message", m)
+            elif cmd == "GPS" and len(parts) == 8:
+                v = [parse_num(x) for x in parts[1:]]
+                if None in v or v[0] not in (0, 1, 2):
+                    return
+                g = {"fix": v[0], "sats": v[1], "lat": v[2], "lon": v[3], "kmh": v[4],
+                     "course": v[5], "hdop": v[6], "t": now_ms()}
+                self.gps[me] = g
+                self._emit("gps", {"device": me, "gps": g})
+            elif cmd == "PEER" and len(parts) == 9 and len(parts[1]) == 4:
+                v = [parse_num(x) for x in parts[2:]]
+                if None in v:
+                    return
+                peer = parts[1].upper()
+                p = {"id": peer, "lat": v[0], "lon": v[1], "age": v[2], "dist": v[3],
+                     "bearing": v[4], "rssi": v[5], "snr": v[6], "t": now_ms()}
+                self.peers.setdefault(me, {})[peer] = p
+                self._emit("peer", {"device": me, "peer": p})
+            elif cmd == "FINDME" and len(parts) == 2:
+                f = {"from": parts[1].upper(), "t": now_ms()}
+                self.findme[me] = f
+                self._emit("findme", {"device": me, **f})
+            elif cmd == "FINDSENT":
+                self.findsent[me] = now_ms()
+                self._emit("findsent", {"device": me, "t": self.findsent[me]})
             elif cmd == "ERR":
                 self.set_device(me, error={"text": line[4:], "t": now_ms()})
 
@@ -450,9 +493,41 @@ def make_handler(hub, http_port):
                 if not ok:
                     return self._json(404 if err == "No such message" else 409, {"error": err})
                 return self._json(200, {"ok": True})
+            if self.path == "/api/findme":
+                err = hub.command(device, "FINDME")
+                if err:
+                    return self._json(409, {"error": err})
+                return self._json(200, {"ok": True})
+            if self.path == "/api/setpos":
+                if data.get("off") is True:
+                    line = "SETPOS off"
+                else:
+                    lat, lon = coord(data.get("lat"), 90), coord(data.get("lon"), 180)
+                    if lat is None:
+                        return self._json(400, {"error": "Latitude must be a number from -90 to 90"})
+                    if lon is None:
+                        return self._json(400, {"error": "Longitude must be a number from -180 to 180"})
+                    if lat == 0 and lon == 0:
+                        return self._json(400, {"error": "0, 0 is not a usable position"})
+                    line = f"SETPOS {lat:.6f} {lon:.6f}"
+                err = hub.command(device, line)
+                if err:
+                    return self._json(409, {"error": err})
+                return self._json(200, {"ok": True})
             self._json(404, {"error": "Not found"})
 
     return Handler
+
+
+def coord(value, limit):
+    """A latitude or longitude from JSON (number or numeric string), or None."""
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        return None
+    try:
+        v = float(value)
+    except ValueError:
+        return None
+    return v if math.isfinite(v) and -limit <= v <= limit else None
 
 
 def main():
