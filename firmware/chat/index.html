@@ -220,6 +220,72 @@ body.page-focused .pane.active { border-color: var(--color-focus-border); }
 .pane-note { padding: 0 var(--space-card) var(--space-s); }
 .pane-note:empty { display: none; }
 
+/* Location strip under the pane header */
+.banner {
+  margin: var(--space-s) var(--space-card) 0;
+  padding: var(--space-s) var(--space-m);
+  border-radius: var(--radius-card);
+  background-color: var(--color-glass-active);
+  border-color: var(--color-focus-border);
+  font-weight: var(--font-button-weight);
+}
+.banner[hidden] { display: none; }
+.loc {
+  display: flex;
+  align-items: center;
+  gap: var(--space-s);
+  padding: var(--space-s) var(--space-card);
+  border-bottom: var(--border-width) solid var(--color-glass-border);
+}
+.loc .texts { flex: 1; min-width: 0; }
+.loc .friend, .loc .own { overflow-wrap: anywhere; }
+.loc.stale .friend { color: var(--color-text-secondary); }
+.loc.stale .compass { opacity: var(--disabled-opacity); }
+.compass { flex: none; width: calc(var(--size-icon) + var(--space-xs)); height: auto; display: block; }
+.compass[hidden] { display: none; }
+.compass circle { fill: none; stroke: var(--color-glass-border); }
+.compass .tick { stroke: currentColor; }
+.compass text { font-size: 7px; font-weight: var(--font-button-weight); fill: currentColor; }
+.compass .needle { transform-box: view-box; transform-origin: 12px 18px; }
+.small-btn {
+  flex: none;
+  padding: var(--space-xs) var(--space-m);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-label-size);
+  line-height: var(--font-label-line);
+  font-weight: var(--font-button-weight);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.small-btn:focus-visible { outline: none; border-color: var(--color-focus-border); }
+.small-btn:disabled { opacity: var(--disabled-opacity); cursor: default; }
+
+/* Test position forms in the debug area */
+.testpos { display: flex; flex-direction: column; gap: var(--space-s); margin-top: var(--space-s); }
+.tp {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-s);
+  padding: var(--space-s) var(--space-m);
+  border-radius: var(--radius-card);
+}
+.tp .tp-name { font-weight: var(--font-button-weight); color: var(--color-text); }
+.tp input {
+  width: calc(var(--space-l) * 3.5);
+  padding: var(--space-xs) var(--space-m);
+  border-radius: var(--radius-pill);
+  outline: none;
+  font-size: var(--font-label-size);
+  line-height: var(--font-label-line);
+  font-variant-numeric: tabular-nums;
+}
+.tp input:focus { border-color: var(--color-focus-border); }
+.tp input::placeholder { color: var(--color-text-secondary); }
+.tp input:disabled { opacity: var(--disabled-opacity); }
+.tp .tp-note { flex-basis: 100%; }
+.tp .tp-note:empty { display: none; }
+
 /* Placeholder for a missing board */
 .pane.missing {
   border-style: dashed;
@@ -262,6 +328,8 @@ body.page-focused .pane.active { border-color: var(--color-focus-border); }
     gap: var(--space-s);
   }
   .pane-head { padding: var(--space-s) var(--space-m); }
+  .loc { padding: var(--space-xs) var(--space-m); }
+  .banner { margin: var(--space-xs) var(--space-m) 0; }
   .list { padding: var(--space-s) var(--space-m); }
   .composer { padding: var(--space-s); }
   .pane.missing { padding: var(--space-m); }
@@ -275,7 +343,8 @@ body.page-focused .pane.active { border-color: var(--color-focus-border); }
 </header>
 <main id="panes" class="panes" aria-live="polite"></main>
 <details id="debug" class="debug label">
-  <summary>Debug log (raw serial lines)</summary>
+  <summary>Debug: test position and raw serial lines</summary>
+  <div id="testpos" class="testpos"></div>
   <div id="log" class="log glass"></div>
 </details>
 
@@ -293,7 +362,17 @@ const state = {
   messages: new Map(),  // id -> message
   logs: [],
   maxBytes: MAX_BYTES_DEFAULT,
+  gps: {},              // device id -> {fix, sats, lat, lon, kmh, course, hdop, t}
+  peers: {},            // device id -> {peer id -> {id, lat, lon, age, dist, bearing, rssi, snr, t}}
+  findme: {},           // device id -> {from, t}: someone asked this board to be found
+  findsent: {},         // device id -> t of the board's last FINDSENT
 };
+const FINDME_MS = 10000;     // the board flashes this long
+const SENT_MS = 3000;        // "Sent" on the Find button
+const STALE_S = 120;         // friend's position counts as old after this
+const NEARBY_M = 15;
+const GPS_GONE_MS = 10000;   // GPS lines come every 2 s
+const PRESET = { name: 'Amsterdam Dam', lat: 52.3731, lon: 4.8925 };
 const panes = new Map();   // device id -> pane object
 const readPosted = new Set();
 let activePane = null;
@@ -311,6 +390,7 @@ function svg(markup) {
   return t.content.firstChild;
 }
 const ONE_TICK = '<svg viewBox="0 0 20 14" aria-hidden="true"><path d="M3 7.5l3 3 7-7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const COMPASS = '<svg class="compass" viewBox="0 0 24 30" role="img"><text x="12" y="6" text-anchor="middle">N</text><path class="tick" d="M12 7.5v2" stroke-width="1.2"/><circle cx="12" cy="18" r="10.5" stroke-width="1"/><path class="needle" d="M12 10.5l4.5 12-4.5-2.7-4.5 2.7z" fill="currentColor"/></svg>';
 const TWO_TICKS = '<svg viewBox="0 0 20 14" aria-hidden="true"><path d="M1 7.5l3 3 7-7M9 10.5l7-7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 function clock(ms) {
@@ -324,6 +404,37 @@ function signal(s) {
   const parts = [`${s.rssi} dBm`];
   if (s.snr != null) parts.push(`SNR ${s.snr}`);
   return parts.join(' · ');
+}
+function post(path, body) {
+  return fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).then(async r => {
+    const b = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(b.error || `Request failed (${r.status})`);
+    return b;
+  }, () => { throw new Error('chat.py is not reachable'); });
+}
+const POINTS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+function point(deg) { return POINTS[Math.round((((deg % 360) + 360) % 360) / 45) % 8]; }
+// Non-breaking spaces inside each part, so a narrow strip wraps only at " · ".
+const nb = s => s.replace(/ /g, '\u00a0');
+function distance(m) {
+  if (m < 1000) return nb(`${Math.round(m)} m`);
+  return nb(m < 10000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m / 1000)} km`);
+}
+function ago(s) {
+  s = Math.max(0, Math.floor(s));
+  if (s < 60) return nb(`${s} s ago`);
+  return nb(s < 3600 ? `${Math.floor(s / 60)} min ago` : `${Math.floor(s / 3600)} h ago`);
+}
+function plural(n, word) { return `${n} ${word}${n === 1 ? '' : 's'}`; }
+// The board the user is looking for: the other pane, else whoever this board hears.
+function friendOf(id) {
+  const other = sortedDevices().find(d => d.id !== id);
+  if (other) return other.id;
+  return Object.keys(state.peers[id] || {}).find(k => k !== id) || null;
 }
 function bytes(s) { return enc.encode(s).length; }
 function connected(d) { return d && d.state === 'connected'; }
@@ -359,6 +470,22 @@ function makePane(id) {
   p.badge.hidden = true;
   head.append(p.dot, who, p.badge);
 
+  p.banner = el('div', 'banner glass subtitle');
+  p.banner.setAttribute('role', 'alert');
+  p.banner.hidden = true;
+
+  p.loc = el('div', 'loc');
+  p.compass = svg(COMPASS);
+  p.needle = p.compass.querySelector('.needle');
+  const texts = el('div', 'texts');
+  p.friend = el('div', 'friend subtitle');
+  p.own = el('div', 'own label secondary');
+  texts.append(p.friend, p.own);
+  p.find = el('button', 'small-btn glass');
+  p.find.type = 'button';
+  p.loc.append(p.compass, texts, p.find);
+  p.find.addEventListener('click', () => findMe(p));
+
   p.list = el('div', 'list');
   p.list.setAttribute('role', 'log');
 
@@ -379,7 +506,7 @@ function makePane(id) {
   p.button.type = 'submit';
   p.form.append(field, p.button);
 
-  p.el.append(head, p.list, p.note, p.form);
+  p.el.append(head, p.banner, p.loc, p.list, p.note, p.form);
 
   // Read rule: this pane counts as "looked at" once the user clicks in it
   // or focuses its composer.
@@ -491,6 +618,76 @@ function renderList(p) {
   if (first || atBottom) p.stick = true;   // scrolled after the pane is in the page
 }
 
+function ownGpsText(g) {
+  if (!g || Date.now() - g.t > GPS_GONE_MS) return ['GPS: no data from the board', ''];
+  if (g.fix === 2) return ['GPS: test position', `Test position ${g.lat.toFixed(6)}, ${g.lon.toFixed(6)}. Clear it in the debug area.`];
+  if (g.fix === 1) {
+    const acc = Math.max(1, Math.round(g.hdop * 2.5));
+    return [`GPS: ${plural(g.sats, 'satellite')} · about ±${acc} m`,
+      `Rough accuracy from HDOP ${g.hdop} × 2.5 m`];
+  }
+  return [`GPS: searching · ${plural(g.sats, 'satellite')}`, 'Needs a view of the sky'];
+}
+
+function renderLoc(p) {
+  const d = state.devices.get(p.id);
+  const f = friendOf(p.id);
+  const peer = f && (state.peers[p.id] || {})[f];
+  const [own, ownTitle] = ownGpsText(state.gps[p.id]);
+  p.own.textContent = own;
+  p.own.title = ownTitle;
+
+  let text, arrow = null, stale = false;
+  if (!peer) {
+    text = f ? `No position from ${f} yet` : 'No position from the other board yet';
+  } else {
+    const age = peer.age + (Date.now() - peer.t) / 1000;
+    stale = age > STALE_S;
+    if (peer.dist < 0) text = `${f} is sharing its position, waiting for your own GPS`;
+    else if (peer.dist < NEARBY_M) text = `${f} · nearby · ${ago(age)}`;
+    else {
+      arrow = peer.bearing;
+      text = `${f} · ${distance(peer.dist)} · ${nb(`${Math.round(peer.bearing)}° ${point(peer.bearing)}`)} · ${ago(age)}`;
+    }
+    p.friend.title = `${f} at ${peer.lat.toFixed(6)}, ${peer.lon.toFixed(6)} · ${signal(peer)}`;
+  }
+  if (!peer) p.friend.title = '';
+  p.friend.textContent = text;
+  p.loc.classList.toggle('stale', stale);
+  p.compass.toggleAttribute('hidden', arrow == null);   // SVG has no .hidden property
+  if (arrow != null) {
+    p.needle.style.transform = `rotate(${arrow}deg)`;
+    p.compass.setAttribute('aria-label', `Direction ${Math.round(arrow)}° ${point(arrow)}, north up`);
+  }
+
+  const sentAt = Math.max(p.sentAt || 0, state.findsent[p.id] || 0);
+  const justSent = Date.now() - sentAt < SENT_MS;
+  p.find.textContent = p.finding ? 'Sending…' : justSent ? 'Sent' : `Find ${f || 'friend'}`;
+  p.find.disabled = !connected(d) || p.finding;
+  p.find.title = `Make ${f || 'the other board'} flash its LED and screen for 10 seconds`;
+
+  const fm = state.findme[p.id];
+  const show = fm && Date.now() - fm.t < FINDME_MS;
+  p.banner.hidden = !show;
+  if (show) p.banner.textContent = `${fm.from} is looking for you. Your board is flashing.`;
+}
+
+async function findMe(p) {
+  if (p.find.disabled) return;
+  p.finding = true;
+  renderLoc(p);
+  try {
+    await post('/api/findme', { device: p.id });
+    p.sentAt = Date.now();
+    p.note.textContent = '';
+  } catch (err) {
+    p.note.textContent = err.message;
+  } finally {
+    p.finding = false;
+    renderLoc(p);
+  }
+}
+
 function renderPane(p) {
   const d = state.devices.get(p.id);
   const on = connected(d);
@@ -500,6 +697,7 @@ function renderPane(p) {
   p.badge.hidden = unread === 0;
   p.badge.textContent = `${unread} unread`;
   if (d.error && d.error.text) p.note.textContent = `Board says: ${d.error.text}`;
+  renderLoc(p);
   renderList(p);
   updateComposer(p);
 }
@@ -579,6 +777,7 @@ function renderNow() {
   else status.textContent = `${nConnected} boards connected. Type in either pane to send.`;
 
   markActive();
+  renderTestPos();
   renderLog();
   checkRead();
 }
@@ -603,6 +802,80 @@ function checkRead() {
     }).then(r => { if (!r.ok) throw new Error(); })
       .catch(() => { readPosted.delete(m.id); });
   }
+}
+
+const testForms = new Map();   // device id -> form
+function makeTestForm(id) {
+  const t = { id };
+  t.el = el('form', 'tp glass');
+  t.el.noValidate = true;
+  t.el.append(el('span', 'tp-name', `Board ${id}`));
+  const input = (name, ph) => {
+    const i = el('input', 'glass');
+    i.type = 'text';
+    i.inputMode = 'decimal';
+    i.autocomplete = 'off';
+    i.placeholder = ph;
+    i.setAttribute('aria-label', `${name} for board ${id}`);
+    return i;
+  };
+  t.lat = input('Latitude', 'Latitude');
+  t.lon = input('Longitude', 'Longitude');
+  t.set = el('button', 'small-btn glass', 'Set');
+  t.set.type = 'submit';
+  t.clear = el('button', 'small-btn glass', 'Clear');
+  t.clear.type = 'button';
+  t.preset = el('button', 'small-btn glass', PRESET.name);
+  t.preset.type = 'button';
+  t.note = el('span', 'tp-note');
+  t.el.append(t.lat, t.lon, t.set, t.clear, t.preset, t.note);
+  const go = async (body, done) => {
+    t.busy = true; renderTestForm(t);
+    try { await post('/api/setpos', { device: id, ...body }); t.msg = done; t.err = false; }
+    catch (err) { t.msg = err.message; t.err = true; }
+    t.busy = false; renderTestForm(t);
+  };
+  t.el.addEventListener('submit', e => {
+    e.preventDefault();
+    const lat = Number(t.lat.value.trim().replace(',', '.'));
+    const lon = Number(t.lon.value.trim().replace(',', '.'));
+    if (!t.lat.value.trim() || !Number.isFinite(lat) || lat < -90 || lat > 90) {
+      t.msg = 'Latitude must be a number from -90 to 90'; t.err = true; return renderTestForm(t);
+    }
+    if (!t.lon.value.trim() || !Number.isFinite(lon) || lon < -180 || lon > 180) {
+      t.msg = 'Longitude must be a number from -180 to 180'; t.err = true; return renderTestForm(t);
+    }
+    go({ lat, lon }, 'Test position sent to the board');
+  });
+  t.clear.addEventListener('click', () => go({ off: true }, 'Test position cleared, back to real GPS'));
+  t.preset.addEventListener('click', () => {
+    t.lat.value = PRESET.lat.toFixed(6);
+    t.lon.value = PRESET.lon.toFixed(6);
+    go({ lat: PRESET.lat, lon: PRESET.lon }, `Test position set to ${PRESET.name}`);
+  });
+  return t;
+}
+
+function renderTestForm(t) {
+  const on = connected(state.devices.get(t.id));
+  for (const c of [t.lat, t.lon, t.set, t.clear, t.preset]) c.disabled = !on || t.busy;
+  const g = state.gps[t.id];
+  const now = !on ? 'Board is not connected'
+    : !g || Date.now() - g.t > GPS_GONE_MS ? ''
+    : g.fix === 2 ? `Now using test position ${g.lat.toFixed(6)}, ${g.lon.toFixed(6)}`
+    : 'Now using real GPS';
+  t.note.textContent = [t.msg, now].filter(Boolean).join(' · ');
+  t.note.className = `tp-note ${t.err ? 'error' : 'secondary'}`;
+}
+
+function renderTestPos() {
+  const ids = [...panes.keys()];
+  for (const id of ids) if (!testForms.has(id)) testForms.set(id, makeTestForm(id));
+  const box = document.getElementById('testpos');
+  const nodes = ids.map(id => testForms.get(id).el);
+  const same = box.children.length === nodes.length && nodes.every((n, i) => box.children[i] === n);
+  if (!same) box.replaceChildren(...nodes);
+  for (const id of ids) renderTestForm(testForms.get(id));
 }
 
 function renderLog() {
@@ -634,6 +907,10 @@ function connect() {
     state.messages = new Map(s.messages.map(m => [m.id, m]));
     state.logs = s.logs;
     state.maxBytes = s.maxBytes || MAX_BYTES_DEFAULT;
+    state.gps = s.gps || {};
+    state.peers = s.peers || {};
+    state.findme = s.findme || {};
+    state.findsent = s.findsent || {};
     for (const p of panes.values()) p.sig = 'stale';
     render();
   });
@@ -644,6 +921,14 @@ function connect() {
   });
   es.addEventListener('ports', e => { state.ports = JSON.parse(e.data); render(); });
   es.addEventListener('message', e => upsertMessage(JSON.parse(e.data)));
+  es.addEventListener('gps', e => { const x = JSON.parse(e.data); state.gps[x.device] = x.gps; render(); });
+  es.addEventListener('peer', e => {
+    const x = JSON.parse(e.data);
+    (state.peers[x.device] = state.peers[x.device] || {})[x.peer.id] = x.peer;
+    render();
+  });
+  es.addEventListener('findme', e => { const x = JSON.parse(e.data); state.findme[x.device] = x; render(); });
+  es.addEventListener('findsent', e => { const x = JSON.parse(e.data); state.findsent[x.device] = x.t; render(); });
   es.addEventListener('log', e => {
     state.logs.push(JSON.parse(e.data));
     if (state.logs.length > 600) state.logs.splice(0, 300);
@@ -657,6 +942,7 @@ document.addEventListener('visibilitychange', checkRead);
 document.getElementById('debug').addEventListener('toggle', renderLog);
 render();
 connect();
+setInterval(render, 1000);   // ages, the find-me banner and "Sent" run on the clock
 </script>
 </body>
 </html>
