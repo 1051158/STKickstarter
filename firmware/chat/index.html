@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LoRa chat</title>
+<link rel="icon" href="data:,">
+<style>
+/* Design tokens copied from frontend/theme.ts (colors, gradients, space,
+   radius, size, font, layout). Use only these below; keep them in sync. */
+:root {
+  --color-text: #FFFFFF;
+  --color-text-secondary: #A4A4A4;
+  --color-error: #FFB4B4;
+  --color-glass: rgba(251, 252, 253, 0.16);
+  --color-glass-active: rgba(251, 252, 253, 0.26);
+  --color-glass-border: rgba(255, 255, 255, 0.2);
+  --color-focus-border: rgba(255, 255, 255, 0.7);
+
+  --gradient-background:
+    radial-gradient(70% 35% at 0% 38%, rgba(30, 60, 230, 0.9) 0%, rgba(30, 60, 230, 0) 100%),
+    radial-gradient(60% 35% at 100% 42%, rgba(115, 8, 200, 0.9) 0%, rgba(115, 8, 200, 0) 100%),
+    radial-gradient(80% 30% at 50% 0%, rgba(70, 10, 150, 0.8) 0%, rgba(70, 10, 150, 0) 100%),
+    linear-gradient(180deg, #160c5c 0%, #2a2590 45%, #0b0a4c 78%, #070939 100%);
+  --color-background-end: #070939; /* last stop of gradients.background */
+
+  --space-xs: 4px;
+  --space-s: 8px;
+  --space-m: 16px;
+  --space-card: 20px;
+  --space-input-inset: 27px;
+  --space-l: 32px;
+  --space-content-top: 112px;
+  --space-nav-bottom: 44px;
+
+  --radius-pill: 32px;
+  --radius-card: 24px;
+
+  --size-control: 58px;
+  --size-icon-small: 14px;
+  --size-icon: 20px;
+
+  --font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --font-title-size: 40px;   --font-title-line: 48px;   --font-title-weight: 400;
+  --font-subtitle-size: 14px; --font-subtitle-line: 17px;
+  --font-body-size: 16px;    --font-body-line: 19px;
+  --font-button-size: 16px;  --font-button-line: 19px;  --font-button-weight: 600;
+  --font-label-size: 12px;   --font-label-line: 15px;
+
+  --border-width: 1px;
+  --disabled-opacity: 0.4;
+}
+
+* { box-sizing: border-box; }
+html { background-color: var(--color-background-end); } /* shown on overscroll */
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background-image: var(--gradient-background);
+  background-attachment: fixed;
+  color: var(--color-text);
+  font-family: var(--font-family);
+  font-size: var(--font-body-size);
+  line-height: var(--font-body-line);
+  -webkit-font-smoothing: antialiased;
+}
+button, input { font: inherit; color: inherit; }
+
+.glass {
+  background-color: var(--color-glass);
+  border: var(--border-width) solid var(--color-glass-border);
+}
+.secondary { color: var(--color-text-secondary); }
+.error { color: var(--color-error); }
+.label { font-size: var(--font-label-size); line-height: var(--font-label-line); }
+.subtitle { font-size: var(--font-subtitle-size); line-height: var(--font-subtitle-line); }
+
+/* Page */
+.top {
+  height: var(--space-content-top);
+  padding: 0 var(--space-l);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-xs);
+}
+.top h1 {
+  margin: 0;
+  font-size: var(--font-title-size);
+  line-height: var(--font-title-line);
+  font-weight: var(--font-title-weight);
+}
+.panes {
+  height: calc(100dvh - var(--space-content-top) - var(--space-nav-bottom));
+  padding: 0 var(--space-l);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-auto-columns: 1fr;
+  grid-auto-flow: column;
+  gap: var(--space-m);
+}
+
+/* One chat pane */
+.pane {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+body.page-focused .pane.active { border-color: var(--color-focus-border); }
+.pane-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-s);
+  padding: var(--space-m) var(--space-card);
+  border-bottom: var(--border-width) solid var(--color-glass-border);
+}
+.pane-head .who { flex: 1; min-width: 0; }
+.pane-head .name {
+  font-size: var(--font-button-size);
+  line-height: var(--font-button-line);
+  font-weight: var(--font-button-weight);
+}
+.pane-head .port { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dot {
+  flex: none;
+  width: var(--space-s);
+  height: var(--space-s);
+  border-radius: 50%;
+  background-color: var(--color-text);
+}
+.dot.off { background-color: var(--color-error); }
+.dot.wait { background-color: var(--color-text-secondary); }
+.badge {
+  flex: none;
+  padding: var(--space-xs) var(--space-s);
+  border-radius: var(--radius-pill);
+  background-color: var(--color-glass-active);
+  border: var(--border-width) solid var(--color-focus-border);
+  font-size: var(--font-label-size);
+  line-height: var(--font-label-line);
+  font-weight: var(--font-button-weight);
+}
+.badge[hidden] { display: none; }
+
+.list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-m) var(--space-card);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-s);
+}
+.empty { margin: auto; text-align: center; }
+.row { display: flex; flex-direction: column; max-width: 80%; gap: var(--space-xs); }
+.row.out { align-self: flex-end; align-items: flex-end; }
+.row.in { align-self: flex-start; align-items: flex-start; }
+.bubble {
+  padding: var(--space-s) var(--space-m);
+  border-radius: var(--radius-card);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.row.out .bubble { background-color: var(--color-glass-active); }
+.row.in .bubble.unread { border-color: var(--color-focus-border); }
+.meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-xs);
+  margin-top: var(--space-xs);
+  white-space: nowrap;
+}
+.ticks { display: inline-flex; align-items: center; gap: var(--space-xs); color: var(--color-text-secondary); }
+.ticks.read { color: var(--color-text); }
+.ticks.failed { color: var(--color-error); }
+.ticks svg { width: var(--size-icon); height: var(--size-icon-small); display: block; }
+.signal { padding: 0 var(--space-s); }
+
+.composer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-s);
+  padding: var(--space-m) var(--space-card);
+  border-top: var(--border-width) solid var(--color-glass-border);
+}
+.field { flex: 1; min-width: 0; position: relative; }
+.field input {
+  width: 100%;
+  height: var(--size-control);
+  padding: 0 var(--space-input-inset);
+  border-radius: var(--radius-pill);
+  outline: none;
+}
+.field input::placeholder { color: var(--color-text-secondary); }
+.field input:focus { border-color: var(--color-focus-border); }
+.field.counting input { padding-right: calc(var(--space-input-inset) * 2 + var(--space-m)); }
+.counter {
+  position: absolute;
+  right: var(--space-card);
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.composer button {
+  flex: none;
+  height: var(--size-control);
+  padding: 0 var(--space-card);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-button-size);
+  line-height: var(--font-button-line);
+  font-weight: var(--font-button-weight);
+  cursor: pointer;
+}
+.composer button:focus-visible { outline: none; border-color: var(--color-focus-border); }
+.composer :disabled { opacity: var(--disabled-opacity); cursor: default; }
+.pane-note { padding: 0 var(--space-card) var(--space-s); }
+.pane-note:empty { display: none; }
+
+/* Placeholder for a missing board */
+.pane.missing {
+  border-style: dashed;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: var(--space-l);
+  gap: var(--space-s);
+  background-color: transparent;
+}
+.pane.missing .big {
+  font-size: var(--font-button-size);
+  line-height: var(--font-button-line);
+  font-weight: var(--font-button-weight);
+}
+
+/* Debug log */
+.debug {
+  min-height: var(--space-nav-bottom);
+  padding: var(--space-m) var(--space-l) 0;
+}
+.debug summary { cursor: pointer; color: var(--color-text-secondary); }
+.debug .log {
+  margin: var(--space-s) 0 var(--space-l);
+  padding: var(--space-m);
+  border-radius: var(--radius-card);
+  max-height: 50dvh;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 699px) {
+  .top, .panes, .debug { padding-left: var(--space-m); padding-right: var(--space-m); }
+  .panes {
+    grid-template-columns: 1fr;
+    grid-auto-flow: row;
+    grid-auto-rows: 1fr;
+    gap: var(--space-s);
+  }
+  .pane-head { padding: var(--space-s) var(--space-m); }
+  .list { padding: var(--space-s) var(--space-m); }
+  .composer { padding: var(--space-s); }
+  .pane.missing { padding: var(--space-m); }
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>LoRa chat</h1>
+  <div id="status" class="subtitle secondary">Connecting to chat.py…</div>
+</header>
+<main id="panes" class="panes" aria-live="polite"></main>
+<details id="debug" class="debug label">
+  <summary>Debug log (raw serial lines)</summary>
+  <div id="log" class="log glass"></div>
+</details>
+
+<script>
+'use strict';
+
+const MAX_BYTES_DEFAULT = 180;
+const COUNTER_FROM = 150;          // show the byte counter from here on
+const enc = new TextEncoder();
+
+const state = {
+  online: false,
+  devices: new Map(),   // id -> {id, port, state, firstSeen, error}
+  ports: [],            // [{port, state, error}] boards that have no ID yet
+  messages: new Map(),  // id -> message
+  logs: [],
+  maxBytes: MAX_BYTES_DEFAULT,
+};
+const panes = new Map();   // device id -> pane object
+const readPosted = new Set();
+let activePane = null;
+
+// ---------- helpers ----------
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+function svg(markup) {
+  const t = document.createElement('template');
+  t.innerHTML = markup.trim();
+  return t.content.firstChild;
+}
+const ONE_TICK = '<svg viewBox="0 0 20 14" aria-hidden="true"><path d="M3 7.5l3 3 7-7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const TWO_TICKS = '<svg viewBox="0 0 20 14" aria-hidden="true"><path d="M1 7.5l3 3 7-7M9 10.5l7-7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+function clock(ms) {
+  return ms ? new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+}
+function fullTime(ms) {
+  return ms ? new Date(ms).toLocaleString() : '';
+}
+function signal(s) {
+  if (!s || s.rssi == null) return '';
+  const parts = [`${s.rssi} dBm`];
+  if (s.snr != null) parts.push(`SNR ${s.snr}`);
+  return parts.join(' · ');
+}
+function bytes(s) { return enc.encode(s).length; }
+function connected(d) { return d && d.state === 'connected'; }
+function sortedDevices() {
+  return [...state.devices.values()].sort((a, b) =>
+    (connected(b) - connected(a)) || (a.firstSeen - b.firstSeen));
+}
+function paneMessages(id) {
+  return [...state.messages.values()]
+    .filter(m => (m.local && m.from === id) || (m.received && m.to === id))
+    .sort((a, b) => (time(a, id) - time(b, id)) || (a.id - b.id));
+}
+function time(m, id) { return (m.local && m.from === id) ? m.sentAt : m.receivedAt; }
+function unreadIn(id) {
+  let n = 0;
+  for (const m of state.messages.values()) if (m.received && m.to === id && !m.readLocal) n++;
+  return n;
+}
+
+// ---------- pane ----------
+function makePane(id) {
+  const p = { id, sig: '' };
+  p.el = el('section', 'pane glass');
+  p.el.setAttribute('aria-label', `Board ${id}`);
+
+  const head = el('div', 'pane-head');
+  p.dot = el('span', 'dot');
+  const who = el('div', 'who');
+  p.name = el('div', 'name', `Board ${id}`);
+  p.port = el('div', 'port label secondary');
+  who.append(p.name, p.port);
+  p.badge = el('span', 'badge');
+  p.badge.hidden = true;
+  head.append(p.dot, who, p.badge);
+
+  p.list = el('div', 'list');
+  p.list.setAttribute('role', 'log');
+
+  p.note = el('div', 'pane-note label error');
+
+  p.form = el('form', 'composer');
+  const field = el('div', 'field');
+  p.field = field;
+  p.input = el('input', 'glass');
+  p.input.type = 'text';
+  p.input.autocomplete = 'off';
+  p.input.enterKeyHint = 'send';
+  p.input.setAttribute('aria-label', `Message from board ${id}`);
+  p.counter = el('span', 'counter label secondary');
+  p.counter.hidden = true;
+  field.append(p.input, p.counter);
+  p.button = el('button', 'glass', 'Send');
+  p.button.type = 'submit';
+  p.form.append(field, p.button);
+
+  p.el.append(head, p.list, p.note, p.form);
+
+  // Read rule: this pane counts as "looked at" once the user clicks in it
+  // or focuses its composer.
+  const activate = () => { activePane = id; markActive(); checkRead(); };
+  p.el.addEventListener('pointerdown', activate);
+  p.el.addEventListener('focusin', activate);
+
+  p.input.addEventListener('input', () => updateComposer(p));
+  p.form.addEventListener('submit', e => { e.preventDefault(); send(p); });
+  return p;
+}
+
+function updateComposer(p) {
+  const d = state.devices.get(p.id);
+  const on = connected(d);
+  const text = p.input.value.trim();
+  const n = bytes(text);
+  const max = state.maxBytes;
+  p.input.disabled = !on;
+  p.input.placeholder = on ? 'Message' : 'Plug the board back in';
+  const show = n >= COUNTER_FROM;
+  p.counter.hidden = !show;
+  p.field.classList.toggle('counting', show);
+  p.counter.textContent = `${n}/${max}`;
+  p.counter.classList.toggle('error', n > max);
+  p.counter.classList.toggle('secondary', n <= max);
+  p.button.disabled = !on || !text || n > max || p.sending;
+}
+
+async function send(p) {
+  const text = p.input.value.trim();
+  if (p.button.disabled || !text) return;
+  p.sending = true;
+  updateComposer(p);
+  try {
+    const r = await fetch('/api/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ device: p.id, text }),
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(body.error || `Send failed (${r.status})`);
+    p.input.value = '';
+    p.note.textContent = '';
+    if (body.message) upsertMessage(body.message);
+  } catch (err) {
+    p.note.textContent = err.message === 'Failed to fetch' ? 'chat.py is not reachable' : err.message;
+  } finally {
+    p.sending = false;
+    updateComposer(p);
+    p.input.focus();
+  }
+}
+
+function ticks(m) {
+  const t = el('span', 'ticks');
+  if (m.status === 'failed') {
+    t.classList.add('failed');
+    t.append(el('span', null, 'Not delivered'));
+  } else if (m.status === 'read') {
+    t.classList.add('read');
+    t.append(svg(TWO_TICKS), el('span', null, 'Read'));
+    t.title = `Read ${fullTime(m.readAt)}`;
+  } else if (m.status === 'delivered') {
+    t.append(svg(TWO_TICKS));
+    t.title = 'Delivered to the other board';
+  } else if (m.status === 'sent') {
+    t.append(svg(ONE_TICK));
+    t.title = 'Sent over the radio';
+  } else {
+    t.append(el('span', null, 'Sending'));
+  }
+  return t;
+}
+
+function renderList(p) {
+  const msgs = paneMessages(p.id);
+  const sig = JSON.stringify(msgs.map(m => [m.id, m.status, m.readLocal, m.received, m.delivery, m.rx]));
+  if (sig === p.sig) return;
+  const first = p.sig === '';
+  p.sig = sig;
+  const atBottom = p.list.scrollHeight - p.list.scrollTop - p.list.clientHeight < 48;
+  p.list.textContent = '';
+  if (!msgs.length) {
+    const other = sortedDevices().find(d => d.id !== p.id);
+    p.list.append(el('div', 'empty subtitle secondary',
+      other ? `No messages yet. Say hi to board ${other.id}.` : 'No messages yet.'));
+    return;
+  }
+  for (const m of msgs) {
+    const out = m.local && m.from === p.id;
+    const row = el('div', `row ${out ? 'out' : 'in'}`);
+    const bubble = el('div', 'bubble glass');
+    if (!out && !m.readLocal) bubble.classList.add('unread');
+    bubble.append(el('div', null, m.text));
+    const meta = el('div', 'meta label secondary');
+    const t = el('time', null, clock(out ? m.sentAt : m.receivedAt));
+    t.title = fullTime(out ? m.sentAt : m.receivedAt);
+    meta.append(t);
+    if (out) meta.append(ticks(m));
+    bubble.append(meta);
+    row.append(bubble);
+    const sigText = out
+      ? (m.delivery ? `Delivered · ${signal(m.delivery)}` : '')
+      : signal(m.rx);
+    if (sigText) row.append(el('div', 'signal label secondary', sigText));
+    p.list.append(row);
+  }
+  if (first || atBottom) p.stick = true;   // scrolled after the pane is in the page
+}
+
+function renderPane(p) {
+  const d = state.devices.get(p.id);
+  const on = connected(d);
+  p.dot.className = `dot ${on ? '' : 'off'}`;
+  p.port.textContent = `${d.port || 'unknown port'} · ${on ? 'Connected' : 'Disconnected'}`;
+  const unread = unreadIn(p.id);
+  p.badge.hidden = unread === 0;
+  p.badge.textContent = `${unread} unread`;
+  if (d.error && d.error.text) p.note.textContent = `Board says: ${d.error.text}`;
+  renderList(p);
+  updateComposer(p);
+}
+
+function missingPane(title, text, wait) {
+  const box = el('section', 'pane missing glass');
+  const head = el('div', 'big');
+  if (wait != null) {
+    const dot = el('span', `dot ${wait ? 'wait' : 'off'}`);
+    dot.style.display = 'inline-block';
+    dot.style.marginRight = 'var(--space-s)';
+    dot.style.verticalAlign = 'middle';
+    head.append(dot);
+  }
+  head.append(title);
+  box.append(head, el('div', 'subtitle secondary', text));
+  return box;
+}
+
+// ---------- page ----------
+let scheduled = false;
+function render() {
+  if (scheduled) return;
+  scheduled = true;
+  requestAnimationFrame(() => { scheduled = false; renderNow(); });
+}
+
+function renderNow() {
+  const devs = sortedDevices();
+  const nConnected = devs.filter(connected).length;
+  // Connected boards first, then disconnected ones to fill two slots; shown
+  // in the order they were first seen so panes don't swap on unplug.
+  const shown = devs.slice(0, Math.max(2, nConnected))
+    .sort((a, b) => (a.firstSeen - b.firstSeen) || a.id.localeCompare(b.id));
+
+  const nodes = [];
+  for (const d of shown) {
+    let p = panes.get(d.id);
+    if (!p) { p = makePane(d.id); panes.set(d.id, p); }
+    renderPane(p);
+    nodes.push(p.el);
+  }
+  for (const [id, p] of panes) if (!shown.find(d => d.id === id)) { panes.delete(id); }
+
+  // Fill the empty slots with what is missing, in plain words.
+  const pending = [...state.ports];
+  while (nodes.length < 2) {
+    const port = pending.shift();
+    if (port && port.state === 'error') {
+      nodes.push(missingPane(`Can't open ${port.port}`,
+        `${port.error || 'Unknown error'}. Close other programs that use this port, like a serial monitor or the flasher. Retrying every 2 seconds.`, false));
+    } else if (port) {
+      nodes.push(missingPane(`Connecting to ${port.port}`,
+        'Waiting for the board to send its ID. If this takes long, press the reset button on the board.', true));
+    } else if (nodes.length === 0) {
+      nodes.push(missingPane('No boards found',
+        'Plug a LoRa board into a USB port of this Mac. It shows up here within a few seconds.'));
+    } else {
+      nodes.push(missingPane('Plug in a second board',
+        'You need two boards to chat. Plug another LoRa board into a USB port.'));
+    }
+  }
+  const root = document.getElementById('panes');
+  // Re-append only when the order changed, so focus and scroll stay put.
+  const same = root.children.length === nodes.length && nodes.every((n, i) => root.children[i] === n);
+  if (!same) root.replaceChildren(...nodes);
+  for (const p of panes.values()) {
+    if (p.stick) { p.list.scrollTop = p.list.scrollHeight; p.stick = false; }
+  }
+
+  const status = document.getElementById('status');
+  status.classList.toggle('error', !state.online);
+  status.classList.toggle('secondary', state.online);
+  if (!state.online) status.textContent = 'Lost connection to chat.py. Is it still running?';
+  else if (nConnected === 0) status.textContent = 'No boards connected. Plug in two LoRa boards over USB.';
+  else if (nConnected === 1) status.textContent = 'One board connected. Plug in a second board.';
+  else status.textContent = `${nConnected} boards connected. Type in either pane to send.`;
+
+  markActive();
+  renderLog();
+  checkRead();
+}
+
+function markActive() {
+  document.body.classList.toggle('page-focused', document.visibilityState === 'visible' && document.hasFocus());
+  for (const [id, p] of panes) p.el.classList.toggle('active', id === activePane);
+}
+
+// Post /api/read once per unread message, but only while the window is
+// focused and visible and the user has picked this pane.
+function checkRead() {
+  markActive();
+  if (!activePane || document.visibilityState !== 'visible' || !document.hasFocus()) return;
+  for (const m of state.messages.values()) {
+    if (!m.received || m.to !== activePane || m.readLocal || readPosted.has(m.id)) continue;
+    readPosted.add(m.id);
+    fetch('/api/read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ device: m.to, from: m.from, n: m.n }),
+    }).then(r => { if (!r.ok) throw new Error(); })
+      .catch(() => { readPosted.delete(m.id); });
+  }
+}
+
+function renderLog() {
+  const dbg = document.getElementById('debug');
+  if (!dbg.open) return;
+  const box = document.getElementById('log');
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
+  box.textContent = state.logs.slice(-300).map(l =>
+    `${new Date(l.t).toLocaleTimeString()}  ${l.port}  ${l.dir === 'tx' ? '→' : '←'}  ${l.line}`).join('\n')
+    || 'Nothing yet.';
+  if (atBottom) box.scrollTop = box.scrollHeight;
+}
+
+function upsertMessage(m) {
+  state.messages.set(m.id, m);
+  render();
+}
+
+// ---------- events ----------
+function connect() {
+  const es = new EventSource('/events');
+  es.addEventListener('open', () => { state.online = true; render(); });
+  es.addEventListener('error', () => { state.online = false; render(); });
+  es.addEventListener('snapshot', e => {
+    const s = JSON.parse(e.data);
+    state.online = true;
+    state.devices = new Map(s.devices.map(d => [d.id, d]));
+    state.ports = s.ports;
+    state.messages = new Map(s.messages.map(m => [m.id, m]));
+    state.logs = s.logs;
+    state.maxBytes = s.maxBytes || MAX_BYTES_DEFAULT;
+    for (const p of panes.values()) p.sig = 'stale';
+    render();
+  });
+  es.addEventListener('device', e => {
+    const d = JSON.parse(e.data);
+    state.devices.set(d.id, d);
+    render();
+  });
+  es.addEventListener('ports', e => { state.ports = JSON.parse(e.data); render(); });
+  es.addEventListener('message', e => upsertMessage(JSON.parse(e.data)));
+  es.addEventListener('log', e => {
+    state.logs.push(JSON.parse(e.data));
+    if (state.logs.length > 600) state.logs.splice(0, 300);
+    if (document.getElementById('debug').open) render();
+  });
+}
+
+window.addEventListener('focus', checkRead);
+window.addEventListener('blur', markActive);
+document.addEventListener('visibilitychange', checkRead);
+document.getElementById('debug').addEventListener('toggle', renderLog);
+render();
+connect();
+</script>
+</body>
+</html>
