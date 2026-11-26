@@ -122,6 +122,8 @@ void handleRadio(const String &pkt) {
     lastSnr = snr;
     strcpy(lastFrom, a);
     lastText = pkt.substring(textAt);
+    for (unsigned i = 0; i < lastText.length(); i++)
+      if ((uint8_t)lastText[i] < 0x20 || lastText[i] == 0x7F) lastText.setCharAt(i, ' ');  // keep one line per message on serial
     recvCount++;
     Serial.printf("MSG %s %u %.0f %.1f %s\n", a, n, rssi, snr, lastText.c_str());
     showStats();

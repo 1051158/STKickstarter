@@ -409,7 +409,7 @@ def make_handler(hub, http_port):
         def _body(self):
             try:
                 length = int(self.headers.get("Content-Length") or 0)
-                if length > 4096:
+                if length < 0 or length > 4096:
                     return None
                 data = json.loads(self.rfile.read(length) or b"{}")
                 return data if isinstance(data, dict) else None
@@ -419,6 +419,12 @@ def make_handler(hub, http_port):
         def do_POST(self):
             if not self._host_ok():
                 return
+            # Other websites open in the browser may post here. A JSON content type forces a
+            # CORS preflight, which this server never answers, and Origin must be this page.
+            origin = self.headers.get("Origin")
+            ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip()
+            if (origin and origin.removeprefix("http://") not in allowed_hosts) or ctype != "application/json":
+                return self._json(403, {"error": "Forbidden"})
             data = self._body()
             if data is None:
                 return self._json(400, {"error": "Body must be a JSON object"})
