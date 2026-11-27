@@ -64,7 +64,7 @@ body {
   line-height: var(--font-body-line);
   -webkit-font-smoothing: antialiased;
 }
-button, input { font: inherit; color: inherit; }
+button, input, select { font: inherit; color: inherit; }
 
 .glass {
   background-color: var(--color-glass);
@@ -215,6 +215,27 @@ body.page-focused .pane.active { border-color: var(--color-focus-border); }
   font-weight: var(--font-button-weight);
   cursor: pointer;
 }
+.composer .preset {
+  flex: none;
+  height: var(--size-control);
+  padding: 0 var(--space-card);
+  border-radius: var(--radius-pill);
+  position: relative;
+  display: flex;
+  align-items: center;
+  font-weight: var(--font-button-weight);
+  white-space: nowrap;
+}
+.preset select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  color-scheme: dark;   /* dark option list in Chrome */
+  cursor: pointer;
+}
+.preset:has(:disabled) { opacity: var(--disabled-opacity); }
+.preset:has(:focus-visible) { border-color: var(--color-focus-border); }
 .composer button:focus-visible { outline: none; border-color: var(--color-focus-border); }
 .composer :disabled { opacity: var(--disabled-opacity); cursor: default; }
 .pane-note { padding: 0 var(--space-card) var(--space-s); }
@@ -319,6 +340,11 @@ body.page-focused .pane.active { border-color: var(--color-focus-border); }
   font-variant-numeric: tabular-nums;
 }
 
+@media (max-width: 899px) {
+  .composer { padding: var(--space-m); }
+  .composer .preset, .composer button { padding: 0 var(--space-m); }
+}
+
 @media (max-width: 699px) {
   .top, .panes, .debug { padding-left: var(--space-m); padding-right: var(--space-m); }
   .panes {
@@ -353,6 +379,8 @@ body.page-focused .pane.active { border-color: var(--color-focus-border); }
 
 const MAX_BYTES_DEFAULT = 180;
 const COUNTER_FROM = 150;          // show the byte counter from here on
+// Same list as PRESETS in ../src/main.cpp, so the app and the board's button offer the same messages.
+const PRESETS = ['Waar ben je?', 'Kom naar mij', 'Wacht op mij', 'Alles goed', 'Bij de bar', 'Ga naar huis'];
 const enc = new TextEncoder();
 
 const state = {
@@ -504,7 +532,19 @@ function makePane(id) {
   field.append(p.input, p.counter);
   p.button = el('button', 'glass', 'Send');
   p.button.type = 'submit';
-  p.form.append(field, p.button);
+  // Preset menu: picking one sends it straight away and leaves the typed text alone.
+  // The select is invisible on top of the pill, so the pill only takes the width of its label.
+  p.presets = el('select');
+  p.presets.setAttribute('aria-label', `Send a preset message from board ${id}`);
+  p.presets.append(el('option', '', 'Presets'), ...PRESETS.map(t => el('option', '', t)));
+  const pick = el('label', 'preset glass', 'Presets ▾');
+  pick.append(p.presets);
+  p.presets.addEventListener('change', () => {
+    const text = PRESETS[p.presets.selectedIndex - 1];
+    p.presets.selectedIndex = 0;
+    if (text) send(p, text);
+  });
+  p.form.append(pick, field, p.button);
 
   p.el.append(head, p.banner, p.loc, p.list, p.note, p.form);
 
@@ -534,11 +574,12 @@ function updateComposer(p) {
   p.counter.classList.toggle('error', n > max);
   p.counter.classList.toggle('secondary', n <= max);
   p.button.disabled = !on || !text || n > max || p.sending;
+  p.presets.disabled = !on || p.sending;
 }
 
-async function send(p) {
-  const text = p.input.value.trim();
-  if (p.button.disabled || !text) return;
+async function send(p, preset) {
+  const text = preset || p.input.value.trim();
+  if ((preset ? p.presets.disabled : p.button.disabled) || !text) return;
   p.sending = true;
   updateComposer(p);
   try {
@@ -549,7 +590,7 @@ async function send(p) {
     });
     const body = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(body.error || `Send failed (${r.status})`);
-    p.input.value = '';
+    if (!preset) p.input.value = '';
     p.note.textContent = '';
     if (body.message) upsertMessage(body.message);
   } catch (err) {
@@ -911,6 +952,7 @@ function connect() {
     state.peers = s.peers || {};
     state.findme = s.findme || {};
     state.findsent = s.findsent || {};
+    readPosted.clear();   // a restarted chat.py numbers messages from 1 again
     for (const p of panes.values()) p.sig = 'stale';
     render();
   });

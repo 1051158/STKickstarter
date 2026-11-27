@@ -49,7 +49,7 @@ Under each message you'll see the signal. RSSI is how loud the signal arrived, i
 
 ## Find your friend
 
-The board starts on the locate screen. Press the USER button briefly to switch between the locate screen and the chat screen. An incoming message switches to the chat screen by itself.
+The board starts on the locate screen. A short press on the USER button goes to the next screen: locate, chat, then one screen per preset message, then back to locate. An incoming message switches to the chat screen by itself.
 
 The locate screen shows the other board's ID, the distance, the compass direction (for example `40 NO`) and how many seconds ago its position came in. The bottom line shows the GPS state: `GPS sat 9` means a fix with 9 satellites, `GPS zoekt 3` means it's still searching and sees 3. GPS needs a view of the sky. Indoors it often finds satellites but no fix, and the first fix outside can take a minute or two.
 
@@ -60,9 +60,17 @@ The board has no compass, so it can't tell which way you're holding it. The arro
 
 The Mac app shows the same under each board's header: the friend's distance and direction with a small compass, the GPS satellites and accuracy, and a Find button that makes the other board flash.
 
-Closer than 15 metres the screen shows `Dichtbij` instead of an arrow, because GPS is only accurate to a few metres. Hold the USER button for a second to make the other board flash yellow for 10 seconds, so you can spot your friend.
+Closer than 15 metres the screen shows `Dichtbij` instead of an arrow, because GPS is only accurate to a few metres. On the locate or chat screen, hold the USER button for a second to make the other board flash yellow for 10 seconds, so you can spot your friend.
 
 The chat screen shows the board's ID, message counts, the last signal and the last message it received.
+
+## Preset messages
+
+You can send a message without the Mac app. Press the USER button briefly until the screen shows `Bericht 1/6`, then keep pressing to step through the six presets: `Waar ben je?`, `Kom naar mij`, `Wacht op mij`, `Alles goed`, `Bij de bar` and `Ga naar huis`. Hold the button for a second to send the one on screen. The screen then shows `Versturen...`, `Afgeleverd` once the other board confirms, or `Niet afgeleverd` after 4 tries.
+
+The other board shows the message on its chat screen. If a board is plugged into the Mac app, the message also appears in its chat pane with the usual ticks. In the Mac app, the `Presets` menu next to each message box sends the same six with one pick, and leaves whatever you were typing in the box.
+
+The presets live in `PRESETS` in `src/main.cpp`, with a copy in `PRESETS` in `chat/index.html`. Change both together, and keep each one at 13 characters or less, so it fits on one line on the board.
 
 Without GPS you can still test on a desk: type `SETPOS <lat> <lon>` in a serial monitor (or use the test position in the Mac app) to give a board a pretend position, and `SETPOS off` to go back to GPS. With one board set to `52.3731 4.8925` and the other to `52.3776 4.8925`, the boards show 500 m at 0° (north) and 180° (south).
 
@@ -95,6 +103,7 @@ Each board takes a 4-character ID from its chip's MAC address. The Mac app and t
 | Board | `MSG <from> <n> <rssi> <snr> <text>` | Incoming message |
 | Board | `READ <from> <n>` | The other board read message n |
 | Board | `ERR <text>` | Something went wrong |
+| Board | `PRESET <n> <text>` | The user sent preset message n with the button. Numbers start at 100000, so they never clash with the Mac app's 1 to 65535 |
 | Mac | `FINDME` | Make the other board flash |
 | Mac | `SETPOS <lat> <lon>` or `SETPOS off` | Set or clear a test position |
 | Board | `GPS <fix> <sats> <lat> <lon> <kmh> <course> <hdop>` | Own position every 2 seconds. Fix is 0 (none), 1 (GPS) or 2 (test position) |
