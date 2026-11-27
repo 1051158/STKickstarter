@@ -223,6 +223,11 @@ class Hub:
                     self._bump(m, "read")
                     m["readAt"] = m["readAt"] or now_ms()
                     self._emit("message", m)
+            elif cmd == "PRESET" and len(parts) >= 3:
+                # The user sent a preset with the board's button; SENT and DELIVERED follow as usual.
+                m = self._new_message(**{"from": me, "n": parse_num(parts[1]), "text": line.split(" ", 2)[2],
+                                         "local": True, "sentAt": now_ms(), "status": "sending"})
+                self._emit("message", m)
             elif cmd == "MSG" and len(parts) >= 5:
                 sender, n = parts[1], parse_num(parts[2])
                 rx = {"rssi": parse_num(parts[3]), "snr": parse_num(parts[4])}

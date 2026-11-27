@@ -6,6 +6,7 @@
 // Serial, host to board:  INFO | SEND <n> <text> | READ <from> <n>
 // Serial, board to host:  ID <id> | SENT <n> | DELIVERED <n> <rssi> <snr> | FAILED <n>
 //                         MSG <from> <n> <rssi> <snr> <text> | READ <from> <n> | ERR <text>
+//                         PRESET <n> <text>: the user sent a preset message with the button
 // Location, host to board: FINDME | SETPOS <lat> <lon> | SETPOS off
 // Location, board to host: GPS <fix 0|1|2> <sats> <lat> <lon> <kmh> <course> <hdop>
 //                          PEER <id> <lat> <lon> <age_s> <dist_m> <bearing> <rssi> <snr> | FINDME <from> | FINDSENT
@@ -63,6 +64,11 @@
 #define FLASH_MS 10000
 #define LONG_PRESS_MS 800
 #define MAX_PEERS 8
+#define PRESET_N0 100000     // presets sent from the board count from here; the Mac app uses 1-65535
+
+// Preset messages, picked with the USER button. At most 13 characters, so each fits one line at text size 2.
+const char *PRESETS[] = {"Waar ben je?", "Kom naar mij", "Wacht op mij", "Alles goed", "Bij de bar", "Ga naar huis"};
+const int NUM_PRESETS = sizeof(PRESETS) / sizeof(PRESETS[0]);
 
 SPIClass loraSpi(FSPI);
 SPIClass tftSpi(HSPI);
@@ -82,7 +88,12 @@ Peer peers[MAX_PEERS];
 
 bool simPos = false;  // test position from SETPOS, for indoor testing
 double simLat = 0, simLon = 0;
-enum Screen { LOCATE, CHAT } screen = LOCATE;
+enum Screen { LOCATE, CHAT, PRESET } screen = LOCATE;
+int preset = 0;                // which preset the PRESET screen shows
+unsigned presetCount = 0;      // presets sent, for numbering
+unsigned presetN = 0;          // number of the last preset sent
+int presetSent = -1;           // which preset that was
+const char *presetState = "";  // what happened to it, shown on that preset's screen
 uint32_t flashUntil = 0, nextPosAt = 0, nextReportAt = 0, buttonDownAt = 0;
 char flashFrom[5] = "";
 
@@ -224,11 +235,48 @@ void drawFlash() {
   tft.setTextSize(1);
 }
 
+void drawPreset() {
+  tft.fillScreen(ST77XX_BLACK);
+  tft.setTextSize(1);
+  tft.setTextColor(ST77XX_YELLOW);
+  tft.setCursor(0, 0);
+  tft.printf("Bericht %d/%d", preset + 1, NUM_PRESETS);
+  tft.setTextColor(ST77XX_WHITE);
+  tft.setTextSize(2);
+  tft.setCursor(0, 22);
+  tft.print(PRESETS[preset]);
+  tft.setTextSize(1);
+  tft.setTextColor(ST77XX_GREEN);
+  tft.setCursor(0, 50);
+  if (preset == presetSent) tft.print(presetState);
+  tft.setTextColor(ST77XX_CYAN);
+  tft.setCursor(0, 70);
+  tft.print("kort: verder  lang: stuur");
+}
+
 void showStats();
 void drawScreen() {
   if ((int32_t)(millis() - flashUntil) < 0) drawFlash();
   else if (screen == LOCATE) drawLocate();
+  else if (screen == PRESET) drawPreset();
   else showStats();
+}
+
+// Queue a message from the board itself; the Mac app hears about it through PRESET.
+void sendPreset() {
+  const char *text = PRESETS[preset];
+  for (auto &p : outbox) {
+    if (!p.active) {
+      presetN = PRESET_N0 + presetCount++ % 100000;
+      presetSent = preset;
+      p = {true, presetN, 0, millis(), text};
+      presetState = "Versturen...";
+      Serial.printf("PRESET %u %s\n", presetN, text);
+      return;
+    }
+  }
+  presetSent = preset;
+  presetState = "Wachtrij vol";
 }
 
 void showStats() {
@@ -292,6 +340,7 @@ void handleRadio(const String &pkt) {
         lastRssi = rssi;
         lastSnr = snr;
         Serial.printf("DELIVERED %u %.0f %.1f\n", n, rssi, snr);
+        if (n == presetN) presetState = "Afgeleverd";
         drawScreen();
       }
     }
@@ -409,12 +458,25 @@ void serviceOutbox();
 void serviceLocation() {
   while (gnssSerial.available()) gps.encode(gnssSerial.read());
 
-  // USER button: short press switches screen, long press asks the other board to flash
+  // USER button. Short press: next screen, through locate, chat and each preset message.
+  // Long press: send the preset on screen, or elsewhere ask the other board to flash.
   bool down = digitalRead(BUTTON_PIN) == LOW;
   if (down && !buttonDownAt) buttonDownAt = millis() | 1;
   if (!down && buttonDownAt) {
-    if (millis() - buttonDownAt >= LONG_PRESS_MS) sendFindMe();
-    else screen = screen == LOCATE ? CHAT : LOCATE;
+    if (millis() - buttonDownAt < LONG_PRESS_MS) {
+      if (screen == LOCATE) {
+        screen = CHAT;
+      } else if (screen == CHAT) {
+        screen = PRESET;
+        preset = 0;
+      } else if (++preset == NUM_PRESETS) {
+        screen = LOCATE;
+      }
+    } else if (screen == PRESET) {
+      sendPreset();
+    } else {
+      sendFindMe();
+    }
     buttonDownAt = 0;
     drawScreen();
   }
@@ -489,6 +551,10 @@ void serviceOutbox() {
   if (next->tries == TRIES) {
     next->active = false;
     Serial.printf("FAILED %u\n", next->n);
+    if (next->n == presetN) {
+      presetState = "Niet afgeleverd";
+      drawScreen();
+    }
     return;
   }
   transmit("M " + String(myId) + " " + next->n + " " + next->text);
